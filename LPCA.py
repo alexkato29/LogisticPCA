@@ -60,10 +60,18 @@ class LogisticPCA():
 
         self.mu = mu
         self.U = U
-        print(U)
 
     
     def transform(self, X):
+        """
+        Transforms new data using the same model
+
+        Parameters:
+        - X (matrix): New binary data with the same number of features
+
+        Returns:
+        - Theta (matrix): Mean centered projection of the natural parameters
+        """
         Q = (2*X) - 1
         Theta_S = (self.m * Q) - (np.ones((X.shape[0], 1)) @ self.mu.T)
         return Theta_S @ self.U
