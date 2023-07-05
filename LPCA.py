@@ -47,7 +47,6 @@ class LogisticPCA():
             argmax = (Theta_S - Mu).T @ (Z - Mu) + (Z - Mu).T @ (Theta_S - Mu) - (Theta_S - Mu).T @ (Theta_S - Mu)
             eigenvectors = scipy.linalg.eig(argmax)[1]
             U = eigenvectors[:, :self.k]
-            print(iter)
 
             # Update Theta
             Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
