@@ -33,41 +33,45 @@ class LogisticPCA():
         # Initialize mu to logit(X_bar)
         mu = np.mean(X, axis=0).reshape(-1, 1).T
         mu = self.logit(mu)
+        Mu = np.ones((n, 1)) @ mu
+
+        # Initialize Theta
+        Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
 
         # Initialize likelihood
-        likelihood = -100
+        likelihood = self.likelihood(X, Theta)
+        print(likelihood)
 
         for iter in range(maxiters):
-            # Create a matrix Mu
-            Mu = np.ones((n, 1)) @ mu
-
-            # Update Theta
-            Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
-
             # Update Z
-            Z = Theta + 4*(X - self.sigmoid(Theta))
+            Z = Theta + 4 * (Q @ (1 - self.sigmoid(Q.T @ Theta)))
 
             # Update mu
             mu = (1/n) * ((Z - (Theta_S @ U @ U.T)).T @ np.ones((n, 1))).T
+            Mu = np.ones((n, 1)) @ mu
 
             # Compute E and update U
             Theta_centered = Theta_S - Mu
-            Z_centered = Z - Mu
-            argmax = (Theta_centered.T @ Z_centered) + (Z_centered.T @ Theta_centered) - (Theta_centered.T @ Theta_centered)
-            print(self.is_symmetric(argmax))
-            eigenvectors = scipy.linalg.eig(argmax)[1]
+            temp = Theta_centered.T @ Z
+            argmax = temp + temp.T - (Theta_S.T @ Theta_S) + (n * (mu.T @ mu))
+            eigenvectors = scipy.linalg.eigh(argmax)[1]  # eigh solves problem of complex eigenvectors/values
             U = eigenvectors[:, :self.k]
 
             # Converge criteria
+            Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
             new_likelihood = self.likelihood(X, Theta)
-            if  new_likelihood - likelihood < tol:
-                print("Reached Convergence on Iteration #" + str(iter + 1))
+            print(new_likelihood / np.sum(Q))
+
+            """
+            if likelihood > new_likelihood:
+                print("Likelihood decreased, this should never happen. There is probably a bug.")
                 break
-            elif likelihood > new_likelihood:
-                print("Likelihood decreased, this should never happen. There is likely a bug.")
+            elif  abs(new_likelihood - likelihood) < tol:
+                print("Reached Convergence on Iteration #" + str(iter + 1))
                 break
             else:
                 likelihood = new_likelihood
+            """
 
         self.mu = mu
         self.U = U
@@ -115,7 +119,7 @@ class LogisticPCA():
     
 
     def logit(self, x):
-        logit = np.log(x / (1 - x))
+        logit = np.log((x + 0.00001) / (1 - x)) # Add 0.00001 to avoid issues when no rows exhibit a behavior
         clipped = np.clip(logit, -1 * self.m, self.m)
         return clipped
     
