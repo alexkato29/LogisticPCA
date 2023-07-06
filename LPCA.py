@@ -3,6 +3,13 @@ import scipy
 
 class LogisticPCA():
     def __init__(self, m, k):
+        """
+        Initialize a new LogisticPCA object
+
+        Parameters:
+        - m (int): Scale factor for saturated model
+        - k (int): Dimension you'd like to reduce to
+        """
         self.m = m
         self.k = k
 
@@ -118,11 +125,15 @@ class LogisticPCA():
     
 
     def logit(self, x):
+        """
+        Returns the elementwise logit of the vector x
+
+        Parameters:
+        - x (vector): Vector to apply logit to
+
+        Returns:
+        - y (vector): Vector with logit applied, bound between -m and m to remain numerically stable
+        """
         logit = np.log((x + 0.00001) / (1 - x)) # Add 0.00001 to avoid issues when no rows exhibit a behavior
         clipped = np.clip(logit, -1 * self.m, self.m)
         return clipped
-    
-
-    def is_symmetric(self, X):
-        transpose = np.transpose(X)
-        return np.array_equal(X, transpose)
