@@ -3,13 +3,6 @@ import scipy
 
 class LogisticPCA():
     def __init__(self, m, k):
-        """
-        Initialize a new LogisticPCA object
-
-        Parameters:
-        - m (int): Scale factor for saturated model
-        - k (int): Dimension you'd like to reduce to
-        """
         self.m = m
         self.k = k
 
@@ -41,6 +34,7 @@ class LogisticPCA():
         mu = np.mean(X, axis=0).reshape(-1, 1).T
         mu = self.logit(mu)
         Mu = np.ones((n, 1)) @ mu
+        mean_likelihood = self.likelihood(X, Mu)
 
         # Initialize Theta
         Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
@@ -48,7 +42,8 @@ class LogisticPCA():
         # Initialize likelihood
         likelihood = self.likelihood(X, Theta)
 
-        for iter in range(maxiters):
+        iter = 1
+        while iter <= maxiters:
             # Update Z
             Z = Theta + 4 * (X - self.sigmoid(Theta))
 
@@ -72,15 +67,23 @@ class LogisticPCA():
                 print("Likelihood decreased, this should never happen. There is probably a bug.")
                 break
             elif  abs(new_likelihood - likelihood) < tol:
-                print("Reached Convergence on Iteration #" + str(iter + 1) + ", with a log likelihood of " + str(new_likelihood))
+                print("Reached Convergence on Iteration #" + str(iter + 1))
                 break
             else:
                 if verbose:
-                    print("Iteration #" + str(iter) + ", Log Likelihood: " + str(new_likelihood))
+                    print(new_likelihood)
                 likelihood = new_likelihood
+
+            iter += 1
 
         self.mu = mu
         self.U = U
+
+        # Calculate proportion of deviance explained
+        dev_explained = 1 - (likelihood / mean_likelihood)
+        
+        print("Training Complete. Converged Reached: " + str(not (iter == maxiters)) +
+              "\n Percent of Deviance Explained: " + str(dev_explained * 100) + "%")
 
     
     def transform(self, X):
@@ -94,7 +97,7 @@ class LogisticPCA():
         - Theta (matrix): Mean centered projection of the natural parameters
         """
         Q = (2*X) - 1
-        Theta_S = (self.m * Q) - (np.ones((X.shape[0], 1)) @ self.mu)
+        Theta_S = (self.m * Q)
         return Theta_S @ self.U
 
         
@@ -125,15 +128,11 @@ class LogisticPCA():
     
 
     def logit(self, x):
-        """
-        Returns the elementwise logit of the vector x
-
-        Parameters:
-        - x (vector): Vector to apply logit to
-
-        Returns:
-        - y (vector): Vector with logit applied, bound between -m and m to remain numerically stable
-        """
-        logit = np.log((x + 0.00001) / (1 - x)) # Add 0.00001 to avoid issues when no rows exhibit a behavior
+        logit = np.log((x + 0.00001) / (1.00001 - x)) # Add 0.00001 to avoid issues when no/all rows have a particular feature
         clipped = np.clip(logit, -1 * self.m, self.m)
         return clipped
+    
+
+    def is_symmetric(self, X):
+        transpose = np.transpose(X)
+        return np.array_equal(X, transpose)
