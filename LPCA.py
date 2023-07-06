@@ -65,11 +65,11 @@ class LogisticPCA():
                 print("Likelihood decreased, this should never happen. There is probably a bug.")
                 break
             elif  abs(new_likelihood - likelihood) < tol:
-                print("Reached Convergence on Iteration #" + str(iter + 1))
+                print("Reached Convergence on Iteration #" + str(iter + 1) + ", with a log likelihood of " + str(new_likelihood))
                 break
             else:
                 if verbose:
-                    print(new_likelihood)
+                    print("Iteration #" + str(iter) + ", Log Likelihood: " + str(new_likelihood))
                 likelihood = new_likelihood
 
         self.mu = mu
