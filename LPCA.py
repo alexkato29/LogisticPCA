@@ -1,5 +1,6 @@
 import numpy as np
 import scipy
+import time
 
 class LogisticPCA():
     def __init__(self, m, k):
@@ -27,7 +28,12 @@ class LogisticPCA():
         Theta_S = self.m * Q
 
         # Initialize U to the k right singular values of Q
+        start_time = time.time()
         U = np.linalg.svd(Q)[2].T[:, :self.k]
+        end_time = time.time()
+
+        if verbose:
+            print("SVD Initialization Time: " + str(end_time - start_time))
         #U = self.generate_random_orthonormal_matrix(d, d)[:, :self.k]
 
         # Initialize mu to logit(X_bar)
@@ -71,7 +77,8 @@ class LogisticPCA():
                 break
             else:
                 if verbose:
-                    print(new_likelihood)
+                    dev_explained = np.around(1 - (likelihood / mean_likelihood), decimals=5)
+                    print("Percent of Deviance Explained: " + str(dev_explained * 100) + "%, Likelihood: " + str(new_likelihood))
                 likelihood = new_likelihood
 
             iter += 1
@@ -131,8 +138,3 @@ class LogisticPCA():
         logit = np.log((x + 0.00001) / (1.00001 - x)) # Add 0.00001 to avoid issues when no/all rows have a particular feature
         clipped = np.clip(logit, -1 * self.m, self.m)
         return clipped
-    
-
-    def is_symmetric(self, X):
-        transpose = np.transpose(X)
-        return np.array_equal(X, transpose)
