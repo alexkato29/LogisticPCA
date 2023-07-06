@@ -1,6 +1,5 @@
 import numpy as np
 import scipy
-import time
 
 class LogisticPCA():
     def __init__(self, m, k):
@@ -8,7 +7,7 @@ class LogisticPCA():
         self.k = k
 
     
-    def fit(self, X, tol, maxiters=1000):
+    def fit(self, X, tol, maxiters=1000, verbose=False):
         """
         Fits the Logistic PCA model
 
@@ -29,6 +28,7 @@ class LogisticPCA():
 
         # Initialize U to the k right singular values of Q
         U = np.linalg.svd(Q)[2].T[:, :self.k]
+        #U = self.generate_random_orthonormal_matrix(d, d)[:, :self.k]
 
         # Initialize mu to logit(X_bar)
         mu = np.mean(X, axis=0).reshape(-1, 1).T
@@ -40,11 +40,10 @@ class LogisticPCA():
 
         # Initialize likelihood
         likelihood = self.likelihood(X, Theta)
-        print(likelihood)
 
         for iter in range(maxiters):
             # Update Z
-            Z = Theta + 4 * (Q @ (1 - self.sigmoid(Q.T @ Theta)))
+            Z = Theta + 4 * (X - self.sigmoid(Theta))
 
             # Update mu
             mu = (1/n) * ((Z - (Theta_S @ U @ U.T)).T @ np.ones((n, 1))).T
@@ -52,17 +51,16 @@ class LogisticPCA():
 
             # Compute E and update U
             Theta_centered = Theta_S - Mu
-            temp = Theta_centered.T @ Z
-            argmax = temp + temp.T - (Theta_S.T @ Theta_S) + (n * (mu.T @ mu))
+            Z_centered = Z - Mu
+            temp = Theta_centered.T @ Z_centered
+            argmax = temp + temp.T - (Theta_centered.T @ Theta_centered)
             eigenvectors = scipy.linalg.eigh(argmax)[1]  # eigh solves problem of complex eigenvectors/values
-            U = eigenvectors[:, :self.k]
+            U = eigenvectors[:, -self.k:]  # Returns eigenvalues in ascending order, NOT descending
 
             # Converge criteria
             Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
             new_likelihood = self.likelihood(X, Theta)
-            print(new_likelihood / np.sum(Q))
 
-            """
             if likelihood > new_likelihood:
                 print("Likelihood decreased, this should never happen. There is probably a bug.")
                 break
@@ -70,8 +68,9 @@ class LogisticPCA():
                 print("Reached Convergence on Iteration #" + str(iter + 1))
                 break
             else:
+                if verbose:
+                    print(new_likelihood)
                 likelihood = new_likelihood
-            """
 
         self.mu = mu
         self.U = U
