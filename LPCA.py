@@ -4,19 +4,26 @@ import time
 
 class LogisticPCA():
     def __init__(self, m, k):
+        """
+        Initializes Logistic PCA object.
+
+        Parameters:
+        - m (float): Scale factor of matrix Q. As m->infinity, the model becomes more saturated
+        - k (int): Number of principle components to keep
+        """
         self.m = m
         self.k = k
 
     
-    def fit(self, X, tol, maxiters=1000, verbose=False):
+    def fit(self, X, tol=0.0001, maxiters=1000, verbose=False):
         """
-        Fits the Logistic PCA model
+        Fits the Logistic PCA model.
 
         Parameters:
         - X (matrix): Data matrix containing only bernoulli RVs
-        - m (float): Scale factor of matrix Q. As m->infinity, the model becomes more saturated
-        - k (int): Number of principle components to keep
-        - tol (float): Converge criteria. Minimum allowed difference between trained model and perfect fit
+        - tol (float): Converge criteria. Minimum allowed difference between previous loss and current loss
+        - maxiters (int): Maximum number of iterations to run if converge criteria is never reached
+        - verbose (boolean): If True, prints information on every 10th iteration
         """
 
         # Parameter Initializations
@@ -25,6 +32,7 @@ class LogisticPCA():
 
         # Natural parameters of the saturated model Theta_S
         Q = (2*X) - 1
+        Q_sum = np.sum(Q)
         Theta_S = self.m * Q
 
         # Initialize U to the k right singular values of Q
@@ -34,7 +42,6 @@ class LogisticPCA():
 
         if verbose:
             print("SVD Initialization Time: " + str(end_time - start_time))
-        #U = self.generate_random_orthonormal_matrix(d, d)[:, :self.k]
 
         # Initialize mu to logit(X_bar)
         mu = np.mean(X, axis=0).reshape(-1, 1).T
@@ -47,9 +54,10 @@ class LogisticPCA():
 
         # Initialize likelihood
         likelihood = self.likelihood(X, Theta)
+        loss = (-likelihood)/Q_sum
 
-        iter = 1
-        while iter <= maxiters:
+        iter = 0
+        while iter < maxiters:
             # Update Z
             Z = Theta + 4 * (X - self.sigmoid(Theta))
 
@@ -68,34 +76,39 @@ class LogisticPCA():
             # Converge criteria
             Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
             new_likelihood = self.likelihood(X, Theta)
+            new_loss = (-new_likelihood)/Q_sum
 
             if likelihood > new_likelihood:
                 print("Likelihood decreased, this should never happen. There is probably a bug.")
                 break
-            elif  abs(new_likelihood - likelihood) < tol:
+            elif abs(new_loss - loss) < tol:
                 print("Reached Convergence on Iteration #" + str(iter + 1))
                 break
             else:
-                if verbose:
-                    dev_explained = np.around(1 - (likelihood / mean_likelihood), decimals=5)
-                    print("Percent of Deviance Explained: " + str(dev_explained * 100) + "%, Likelihood: " + str(new_likelihood))
+                if verbose and (iter % 10 == 0):
+                    dev_explained = 1 - (likelihood / mean_likelihood)
+                    formatted = "Iteration: {}\nPercent of Deviance Explained: {:.3f}%, Loss:  {:.3f}\n".format(iter, dev_explained*100, new_loss)
+                    print(formatted)
                 likelihood = new_likelihood
+                loss = new_loss
 
             iter += 1
 
+        # Save main effects and projection matrix
         self.mu = mu
         self.U = U
 
         # Calculate proportion of deviance explained
         dev_explained = 1 - (likelihood / mean_likelihood)
+        self.dev = dev_explained
         
         print("Training Complete. Converged Reached: " + str(not (iter == maxiters)) +
-              "\n Percent of Deviance Explained: " + str(dev_explained * 100) + "%")
+              "\nPercent of Deviance Explained: " + str(dev_explained * 100) + "%")
 
     
     def transform(self, X):
         """
-        Transforms new data using the same model
+        Transforms new data using the same model.
 
         Parameters:
         - X (matrix): New binary data with the same number of features
@@ -103,8 +116,10 @@ class LogisticPCA():
         Returns:
         - Theta (matrix): Mean centered projection of the natural parameters
         """
+        n, d = X.shape
         Q = (2*X) - 1
-        Theta_S = (self.m * Q)
+
+        Theta_S = (self.m * Q) - np.ones((n, 1)) @ self.mu
         return Theta_S @ self.U
 
         
@@ -119,12 +134,20 @@ class LogisticPCA():
         return np.sum(X * Theta - np.log(1 + np.exp(Theta)))
     
 
+    def show_info(self):
+        """
+        Displays the values of m, k, and % of deviance explained for the chosen model.
+        """
+        formatted = "Logistic PCA Model w/ m={} and k={}\nProjects the data onto {}-dimensional space, explaining {:.3f}% of the deviance".format(self.m, self.k, self.k, self.dev * 100)
+        print(formatted)
+    
+
     def sigmoid(self, X):
         """
-        Sigmoid of X matrix
+        Computes the elementwise sigmoid of a matrix X.
 
         Parameters:
-        - X (matrix): Matrix to apply sigmoid to
+        - X (matrix): Matrix to apply sigmoid to, clipped to be between +/- m
 
         Returns:
         - A (matrix): Matrix with sigmoid funciton applied elementwise
@@ -134,7 +157,16 @@ class LogisticPCA():
         return 1.0 / (1.0 + t)
     
 
-    def logit(self, x):
-        logit = np.log((x + 0.00001) / (1.00001 - x)) # Add 0.00001 to avoid issues when no/all rows have a particular feature
+    def logit(self, X):
+        """
+        Computes the elementwise logit of a matrix X.
+
+        Parameters:
+        - X (matrix): Matrix to apply logit to
+
+        Returns:
+        - L (matrix): Matrix with logit applied, bound between +/- m
+        """
+        logit = np.log((X + 0.00001) / (1.00001 - X)) # Add 0.00001 to avoid issues when no/all rows have a particular feature
         clipped = np.clip(logit, -1 * self.m, self.m)
         return clipped
