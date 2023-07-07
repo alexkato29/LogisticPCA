@@ -3,7 +3,7 @@ import scipy
 import time
 
 class LogisticPCA():
-    def __init__(self, m, k):
+    def __init__(self, m=0, k=0):
         """
         Initializes Logistic PCA object.
 
@@ -32,7 +32,6 @@ class LogisticPCA():
 
         # Natural parameters of the saturated model Theta_S
         Q = (2*X) - 1
-        Q_sum = np.sum(Q)
         Theta_S = self.m * Q
 
         # Initialize U to the k right singular values of Q
@@ -76,20 +75,26 @@ class LogisticPCA():
             Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
             new_likelihood = self.likelihood(X, Theta)
 
-            if likelihood > new_likelihood:
-                print("Likelihood decreased, this should never happen. There is probably a bug.")
+            if abs(new_likelihood - likelihood) < tol:
+                if verbose:
+                    print("Reached Convergence on Iteration #" + str(iter + 1))
                 break
-            elif abs(new_likelihood - likelihood) < tol:
-                print("Reached Convergence on Iteration #" + str(iter + 1))
+            elif likelihood > new_likelihood:
+                if verbose:
+                    print("Likelihood decreased, local minima found on Iteration #" + str(iter + 1))
+                likelihood = new_likelihood
                 break
             else:
                 if verbose and (iter % 10 == 0):
                     dev_explained = 1 - (likelihood / mean_likelihood)
                     formatted = "Iteration: {}\nPercent of Deviance Explained: {:.3f}%, Log Likelihood: {:.2f}\n".format(iter, dev_explained*100, new_likelihood)
                     print(formatted)
-                likelihood = new_likelihood
 
+            likelihood = new_likelihood
             iter += 1
+
+        end_time = time.time()
+        total_train_time = end_time - start_time
 
         # Save main effects and projection matrix
         self.mu = mu
@@ -99,8 +104,10 @@ class LogisticPCA():
         dev_explained = 1 - (likelihood / mean_likelihood)
         self.dev = dev_explained
         
-        print("Training Complete. Converged Reached: " + str(not (iter == maxiters)) +
-              "\nPercent of Deviance Explained: " + str(dev_explained * 100) + "%")
+        if verbose:
+            print("Training Complete. Converged Reached: " + str(not (iter == maxiters)) +
+                "\nPercent of Deviance Explained: " + str(dev_explained * 100) + "%\n" +
+                "Total Training Time: " + str(total_train_time))
 
     
     def transform(self, X):
@@ -114,6 +121,7 @@ class LogisticPCA():
         - Theta (matrix): Mean centered projection of the natural parameters
         """
         n, d = X.shape
+
         Q = (2*X) - 1
 
         Theta_S = (self.m * Q) - np.ones((n, 1)) @ self.mu
@@ -129,6 +137,126 @@ class LogisticPCA():
         - Theta (matrix): Estimated natural parameters
         """
         return np.sum(X * Theta - np.log(1 + np.exp(Theta)))
+    
+
+    def deviance(self, X):
+        """
+        Compute the proportion of deviance of X explained by the model. Designed to take
+
+        Parameters:
+        - X (matrix): New Data
+        """
+        n, d = X.shape
+
+        mu = np.mean(X, axis=0).reshape(-1, 1).T
+        mu = self.logit(mu)
+        data_Mu = np.ones((n, 1)) @ mu
+        mean_likelihood = self.likelihood(X, data_Mu)
+
+        found_Mu = np.ones((n, 1)) @ self.mu
+        Theta = found_Mu + self.transform(X) @ self.U.T
+
+        likelihood = self.likelihood(X, Theta)
+
+        return 1 - (likelihood / mean_likelihood)
+    
+
+    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=1000, verbose=False):
+        """
+        Use cross-validation to select the smallest model to achieve the desired deviance explained. 
+        Automatically sets the hyperparameters to the best generalizing model and retrains on all of the data.
+
+        Parameters:
+        - X (matrix): The data
+        - target_dev (float): Proportion of deviance looking to be explained by the model [0, 1]
+        - tol (float): Minimum allowed difference between log likelihoods in the fitting method
+        - nfolds (int): Number of folds to use in the cross validation process
+        - verbose (boolean): When true, prints information on each cross validation fold
+        """
+        n, d = X.shape
+
+        # Make sure the matrix is even sensical to reduce
+        if d <= 3:
+            print("Dimension is too small to reduce.")
+            return
+        
+        if verbose:
+            print("Searching for the best value of m and smallest value of k for deviance=" + str(target_dev) + " over "+ str(nfolds) + " folds...")
+
+        # Initialize
+        best_m = 0
+        low = 1
+        high = d
+        best_dev = 0
+
+        # m values
+        m_vals = list(range(6, 17, 1))
+
+        # Binary search for k
+        while low < high:
+            mid = (low + high) // 2
+            self.k = mid
+
+            # Check m values for a given k
+            for m in m_vals:
+                start_time = time.time()
+
+                self.m = m
+
+                # New folds for each m value
+                folds = self.split_data(X, nfolds)
+                deviances = []
+
+                for i, fold in enumerate(folds):
+                    # Create the training matrix
+                    train = np.concatenate([f for j, f in enumerate(folds) if j != i])
+                    self.fit(train, tol=tol, maxiters=maxiters)
+
+                    # Apply it to the new fold to test generalization
+                    deviances.append(self.deviance(fold))
+                
+                avg_dev = sum(deviances) / nfolds
+
+                end_time = time.time()
+                total_time = end_time - start_time
+
+                if verbose:
+                    print("Checked m=" + str(m) + " and k=" + str(self.k) + ". Avg Deviance: " + str(avg_dev) + ". Total Training Time: " + str(total_time))
+
+                if avg_dev >= target_dev:
+                    best_m = m
+                    best_dev = avg_dev
+                    high = mid
+                    break
+            
+            if avg_dev < target_dev:
+                low = mid + 1
+
+        # Update k and m
+        self.k = low
+        self.m = best_m
+
+        if verbose:
+            print("Found m=" + str(best_m) + " and k=" + str(self.k) + " to be the best value. Deviance: " + str(best_dev))
+            print("Retraining on all data with best hyperparameters")
+
+        self.fit(X)
+    
+
+    def split_data(self, X, k):
+        """
+        Splits the data into k folds.
+
+        Parameters:
+        - X (matrix): Data
+        - k (int): Number of folds to create
+        """
+        # Copy and shuffle
+        A = X.copy()
+        np.random.shuffle(A)  
+
+        folds = np.array_split(A, k)
+        return folds
     
 
     def show_info(self):
