@@ -54,7 +54,6 @@ class LogisticPCA():
 
         # Initialize likelihood
         likelihood = self.likelihood(X, Theta)
-        loss = (-likelihood)/Q_sum
 
         iter = 0
         while iter < maxiters:
@@ -76,21 +75,19 @@ class LogisticPCA():
             # Converge criteria
             Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
             new_likelihood = self.likelihood(X, Theta)
-            new_loss = (-new_likelihood)/Q_sum
 
             if likelihood > new_likelihood:
                 print("Likelihood decreased, this should never happen. There is probably a bug.")
                 break
-            elif abs(new_loss - loss) < tol:
+            elif abs(new_likelihood - likelihood) < tol:
                 print("Reached Convergence on Iteration #" + str(iter + 1))
                 break
             else:
                 if verbose and (iter % 10 == 0):
                     dev_explained = 1 - (likelihood / mean_likelihood)
-                    formatted = "Iteration: {}\nPercent of Deviance Explained: {:.3f}%, Loss:  {:.3f}\n".format(iter, dev_explained*100, new_loss)
+                    formatted = "Iteration: {}\nPercent of Deviance Explained: {:.3f}%, Log Likelihood: {:.2f}\n".format(iter, dev_explained*100, new_likelihood)
                     print(formatted)
                 likelihood = new_likelihood
-                loss = new_loss
 
             iter += 1
 
