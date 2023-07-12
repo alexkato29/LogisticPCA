@@ -1,5 +1,5 @@
 import numpy as np
-import scipy
+from scipy import linalg
 import time
 import h5py
 
@@ -69,7 +69,7 @@ class LogisticPCA():
             Z_centered = Z - Mu
             temp = Theta_centered.T @ Z_centered
             argmax = temp + temp.T - (Theta_centered.T @ Theta_centered)
-            eigenvectors = scipy.linalg.eigh(argmax)[1]  # eigh solves problem of complex eigenvectors/values
+            eigenvectors = linalg.eigh(argmax)[1]  # eigh solves problem of complex eigenvectors/values
             U = eigenvectors[:, -self.k:]  # Returns eigenvalues in ascending order, NOT descending
 
             # Converge criteria
@@ -300,6 +300,7 @@ class LogisticPCA():
 
     def save_model(self, file_path):
         with h5py.File(file_path, "w") as f:
+            f.create_dataset("dev", data=self.dev)
             f.create_dataset("m", data=self.m)
             f.create_dataset("k", data=self.k)
             f.create_dataset("U", data=self.U)
@@ -308,6 +309,7 @@ class LogisticPCA():
     
     def load_model(self, file_path):
         with h5py.File(file_path, "r") as f:
+            self.dev = f["dev"][()]
             self.m = f["m"][()]
             self.k = f["k"][()]
             self.U = f["U"][()]
