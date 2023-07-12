@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 import time
+import h5py
 
 class LogisticPCA():
     def __init__(self, m=0, k=0):
@@ -295,3 +296,19 @@ class LogisticPCA():
         logit = np.log((X + 0.00001) / (1.00001 - X)) # Add 0.00001 to avoid issues when no/all rows have a particular feature
         clipped = np.clip(logit, -1 * self.m, self.m)
         return clipped
+    
+
+    def save_model(self, file_path):
+        with h5py.File(file_path, "w") as f:
+            f.create_dataset("m", data=self.m)
+            f.create_dataset("k", data=self.k)
+            f.create_dataset("U", data=self.U)
+            f.create_dataset("mu", data=self.mu)
+
+    
+    def load_model(self, file_path):
+        with h5py.File(file_path, "r") as f:
+            self.m = f["m"][()]
+            self.k = f["k"][()]
+            self.U = f["U"][()]
+            self.mu = f["mu"][()]
