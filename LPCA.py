@@ -162,7 +162,7 @@ class LogisticPCA():
         return 1 - (likelihood / mean_likelihood)
     
 
-    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=1000, verbose=False):
+    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False):
         """
         Use cross-validation to select the smallest model to achieve the desired deviance explained. 
         Automatically sets the hyperparameters to the best generalizing model and retrains on all of the data.
@@ -241,7 +241,7 @@ class LogisticPCA():
             print("Found m=" + str(best_m) + " and k=" + str(self.k) + " to be the best value. Deviance: " + str(best_dev))
             print("Retraining on all data with best hyperparameters")
 
-        self.fit(X)
+        self.fit(X, tol=tol, maxiters=maxiters)
     
 
     def split_data(self, X, k):
