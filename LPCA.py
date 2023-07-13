@@ -1,5 +1,6 @@
-import numpy as np
+from joblib import Parallel, delayed
 from scipy import linalg
+import numpy as np
 import time
 import h5py
 
@@ -36,12 +37,7 @@ class LogisticPCA():
         Theta_S = self.m * Q
 
         # Initialize U to the k right singular values of Q
-        start_time = time.time()
-        U = np.linalg.svd(Q)[2].T[:, :self.k]
-        end_time = time.time()
-
-        if verbose:
-            print("SVD Initialization Time: " + str(end_time - start_time))
+        U = np.linalg.svd(Q, full_matrices=False)[2].T[:, :self.k]
 
         # Initialize mu to logit(X_bar)
         mu = np.mean(X, axis=0).reshape(-1, 1).T
@@ -162,7 +158,7 @@ class LogisticPCA():
         return 1 - (likelihood / mean_likelihood)
     
 
-    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False):
+    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False, n_jobs=-1):
         """
         Use cross-validation to select the smallest model to achieve the desired deviance explained. 
         Automatically sets the hyperparameters to the best generalizing model and retrains on all of the data.
@@ -195,42 +191,52 @@ class LogisticPCA():
 
         # Binary search for k
         while low < high:
+            improved = False
             mid = (low + high) // 2
             self.k = mid
 
             # Check m values for a given k
-            for m in m_vals:
+
+            def fit_with_m(m_val):
+                # Create a temp class
+                tmp = self.__class__(m=m_val, k=mid)
+
                 start_time = time.time()
 
-                self.m = m
-
                 # New folds for each m value
-                folds = self.split_data(X, nfolds)
+                folds = tmp.split_data(X, nfolds)
                 deviances = []
 
                 for i, fold in enumerate(folds):
                     # Create the training matrix
                     train = np.concatenate([f for j, f in enumerate(folds) if j != i])
-                    self.fit(train, tol=tol, maxiters=maxiters)
+                    tmp.fit(train, tol=tol, maxiters=maxiters)
 
                     # Apply it to the new fold to test generalization
-                    deviances.append(self.deviance(fold))
+                    deviances.append(tmp.deviance(fold))
                 
                 avg_dev = sum(deviances) / nfolds
 
                 end_time = time.time()
                 total_time = end_time - start_time
 
+                return m_val, avg_dev, total_time
+
+            results = Parallel(n_jobs=n_jobs)(delayed(fit_with_m)(m) for m in m_vals)
+            results.sort(key=lambda x: x[0])
+
+            for m, avg_dev, total_time in results:
                 if verbose:
-                    print("Checked m=" + str(m) + " and k=" + str(self.k) + ". Avg Deviance: " + str(avg_dev) + ". Total Training Time: " + str(total_time))
+                    print(f"Checked m={m} and k={self.k}. Avg Deviance: {avg_dev}. Total Training Time: {total_time}")
 
                 if avg_dev >= target_dev:
                     best_m = m
-                    best_dev = avg_dev
                     high = mid
+                    improved = True
+                    best_dev = avg_dev
                     break
             
-            if avg_dev < target_dev:
+            if not improved:
                 low = mid + 1
 
         # Update k and m
