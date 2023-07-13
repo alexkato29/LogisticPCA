@@ -1,4 +1,5 @@
 from joblib import Parallel, delayed
+from joblib import cpu_count
 from scipy import linalg
 import numpy as np
 import time
@@ -28,6 +29,8 @@ class LogisticPCA():
         - verbose (boolean): If True, prints information on every 10th iteration
         """
 
+        start_time = time.time()
+
         # Parameter Initializations
         # n: # of observations, p: # of features
         n, d = X.shape  
@@ -37,6 +40,7 @@ class LogisticPCA():
         Theta_S = self.m * Q
 
         # Initialize U to the k right singular values of Q
+        # Note this assumes there are more observations (rows) than features (columns)
         U = np.linalg.svd(Q, full_matrices=False)[2].T[:, :self.k]
 
         # Initialize mu to logit(X_bar)
@@ -158,7 +162,7 @@ class LogisticPCA():
         return 1 - (likelihood / mean_likelihood)
     
 
-    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False, n_jobs=-1):
+    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False, n_jobs=1):
         """
         Use cross-validation to select the smallest model to achieve the desired deviance explained. 
         Automatically sets the hyperparameters to the best generalizing model and retrains on all of the data.
@@ -169,6 +173,7 @@ class LogisticPCA():
         - tol (float): Minimum allowed difference between log likelihoods in the fitting method
         - nfolds (int): Number of folds to use in the cross validation process
         - verbose (boolean): When true, prints information on each cross validation fold
+        - n_jobs (int): Number of CPU cores to train on. Can significantly speed training (defaults to 1, -1 for all available cores)
         """
         n, d = X.shape
 
@@ -181,6 +186,8 @@ class LogisticPCA():
             print("Searching for the best value of m and smallest value of k for deviance=" + str(target_dev) + " over "+ str(nfolds) + " folds...")
 
         # Initialize
+        if n_jobs == -1:
+            n_jobs = cpu_count()
         best_m = 0
         low = 1
         high = d
@@ -196,45 +203,51 @@ class LogisticPCA():
             self.k = mid
 
             # Check m values for a given k
+            # The additional loop is a trick to break out of parallel compute when any solution is found
+            m_batches = np.array_split(m_vals, np.ceil(len(m_vals)/n_jobs))
 
-            def fit_with_m(m_val):
-                # Create a temp class
-                tmp = self.__class__(m=m_val, k=mid)
+            for m_batch in m_batches:
+                def fit_with_m(m_val):
+                    # Create a temp class
+                    tmp = self.__class__(m=m_val, k=mid)
 
-                start_time = time.time()
+                    start_time = time.time()
 
-                # New folds for each m value
-                folds = tmp.split_data(X, nfolds)
-                deviances = []
+                    # New folds for each m value
+                    folds = tmp.split_data(X, nfolds)
+                    deviances = []
 
-                for i, fold in enumerate(folds):
-                    # Create the training matrix
-                    train = np.concatenate([f for j, f in enumerate(folds) if j != i])
-                    tmp.fit(train, tol=tol, maxiters=maxiters)
+                    for i, fold in enumerate(folds):
+                        # Create the training matrix
+                        train = np.concatenate([f for j, f in enumerate(folds) if j != i])
+                        tmp.fit(train, tol=tol, maxiters=maxiters)
 
-                    # Apply it to the new fold to test generalization
-                    deviances.append(tmp.deviance(fold))
-                
-                avg_dev = sum(deviances) / nfolds
+                        # Apply it to the new fold to test generalization
+                        deviances.append(tmp.deviance(fold))
+                    
+                    avg_dev = sum(deviances) / nfolds
 
-                end_time = time.time()
-                total_time = end_time - start_time
+                    end_time = time.time()
+                    total_time = end_time - start_time
 
-                return m_val, avg_dev, total_time
+                    return m_val, avg_dev, total_time
 
-            results = Parallel(n_jobs=n_jobs)(delayed(fit_with_m)(m) for m in m_vals)
-            results.sort(key=lambda x: x[0])
+                results = Parallel(n_jobs=n_jobs)(delayed(fit_with_m)(m) for m in m_batch)
+                results.sort(key=lambda x: x[0])
 
-            for m, avg_dev, total_time in results:
-                if verbose:
-                    print(f"Checked m={m} and k={self.k}. Avg Deviance: {avg_dev}. Total Training Time: {total_time}")
+                for m, avg_dev, total_time in results:
+                    if verbose:
+                        print(f"Checked m={m} and k={self.k}. Avg Deviance: {avg_dev}. Training Time: {total_time}")
 
-                if avg_dev >= target_dev:
-                    best_m = m
-                    high = mid
-                    improved = True
-                    best_dev = avg_dev
-                    break
+                    if avg_dev >= target_dev:
+                        best_m = m
+                        high = mid
+                        improved = True
+                        best_dev = avg_dev
+                        break  # This will break the inner loop over the batch
+                else:
+                    continue  # This will break the outer loop if the target_dev is found
+                break  
             
             if not improved:
                 low = mid + 1
@@ -249,6 +262,78 @@ class LogisticPCA():
 
         self.fit(X, tol=tol, maxiters=maxiters)
     
+
+    def speed_test(self, X, Ks, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False, n_jobs=-1):
+        """
+        A test to see the total time taken on preset m and k values
+
+        Parameters:
+        - X (matrix): The data
+        - Ks (list): k values to test
+        - target_dev (float): Proportion of deviance looking to be explained by the model [0, 1]
+        - tol (float): Minimum allowed difference between log likelihoods in the fitting method
+        - nfolds (int): Number of folds to use in the cross validation process
+        - verbose (boolean): When true, prints information on each cross validation fold
+        """
+        
+        # m values
+        m_vals = list(range(6, 17, 1))
+
+        # Update CPUs
+        if n_jobs == -1:
+            n_jobs = cpu_count()
+
+        # Testing all k vals
+        for k in Ks:
+            if verbose:
+                print("Testing speed of k=" + str(k) + " and deviance=" + str(target_dev) + " over "+ str(nfolds) + " folds...")
+
+            start_time = time.time()
+
+            # Check m values for a given k
+            # The additional loop is a trick to break out of parallel compute when any solution is found
+            m_batches = np.array_split(m_vals, np.ceil(len(m_vals)/n_jobs))
+
+            for m_batch in m_batches:
+                def fit_with_m(m_val):
+                    # Create a temp class
+                    tmp = self.__class__(m=m_val, k=k)
+
+                    start_time = time.time()
+
+                    # New folds for each m value
+                    folds = tmp.split_data(X, nfolds)
+                    deviances = []
+
+                    for i, fold in enumerate(folds):
+                        # Create the training matrix
+                        train = np.concatenate([f for j, f in enumerate(folds) if j != i])
+                        tmp.fit(train, tol=tol, maxiters=maxiters)
+
+                        # Apply it to the new fold to test generalization
+                        deviances.append(tmp.deviance(fold))
+                    
+                    avg_dev = sum(deviances) / nfolds
+
+                    return m_val, avg_dev
+
+                results = Parallel(n_jobs=n_jobs)(delayed(fit_with_m)(m) for m in m_batch)
+                results.sort(key=lambda x: x[0])
+
+                for m, avg_dev in results:
+                    if verbose:
+                        print(f"Checked m={m} and k={self.k}. Avg Deviance: {avg_dev}.")
+
+                    if avg_dev >= target_dev:
+                        break  # This will break the inner loop over the batch
+                else:
+                    continue
+                break
+            
+            end_time = time.time()
+            total_time = end_time - start_time
+            print(f"Speed of k={self.k}. Total Training Time: {total_time}")
+
 
     def split_data(self, X, k):
         """
