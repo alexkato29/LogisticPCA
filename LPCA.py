@@ -224,7 +224,7 @@ class LogisticPCA():
         return 1 - (likelihood / mean_likelihood)
     
 
-    def crossval(self, X, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False, n_jobs=1):
+    def crossval(self, X, target_dev, m_range=list(range(6,17,1)), k_range=None, nfolds=5, tol=0.01, maxiters=100, verbose=False, n_jobs=1):
         """
         Use cross-validation to select the smallest model to achieve the desired deviance explained. 
         Automatically sets the hyperparameters to the best generalizing model and retrains on all of the data.
@@ -232,6 +232,8 @@ class LogisticPCA():
         Parameters:
         - X (matrix): The data
         - target_dev (float): Proportion of deviance looking to be explained by the model [0, 1]
+        - m_range (list, type int): m values to check
+        - k_range (list): Two element list. First is the bottom bound of k, second is the upper bound
         - tol (float): Minimum allowed difference between log likelihoods in the fitting method
         - nfolds (int): Number of folds to use in the cross validation process
         - verbose (boolean): When true, prints information on each cross validation fold
@@ -250,13 +252,19 @@ class LogisticPCA():
         # Initialize
         if n_jobs == -1:
             n_jobs = cpu_count()
+        
+        if k_range == None:
+            low = 1
+            high = d
+        else:
+            low = k_range[0]
+            high = k_range[1]
+
         best_m = 0
-        low = 1
-        high = d
         best_dev = 0
 
         # m values
-        m_vals = list(range(6, 17, 1))
+        m_vals = m_range
 
         # Binary search for k
         while low < high:
