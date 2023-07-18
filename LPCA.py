@@ -58,6 +58,7 @@ class LogisticPCA():
         # Natural parameters of the saturated model Theta_S
         Q = (2*X) - 1
         Theta_S = self.m * Q
+        frobenius = np.linalg.norm(Q)  # Used for loss calculation
 
         # Initialize U to the k right singular values of Q
         # Note this assumes there are more observations (rows) than features (columns)
@@ -72,8 +73,9 @@ class LogisticPCA():
         # Initialize Theta
         Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
 
-        # Initialize likelihood
+        # Initialize likelihood and loss
         likelihood = self.likelihood(X, Theta)
+        prev_loss = (-likelihood) / frobenius
 
         iter = 0
         while iter < maxiters:
@@ -95,15 +97,16 @@ class LogisticPCA():
             # Converge criteria
             Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
             new_likelihood = self.likelihood(X, Theta)
+            new_loss = (-new_likelihood) / frobenius
 
-            if abs(new_likelihood - likelihood) < tol:
-                self.converged = True
-                self._verbose_converged(iter)
+            if likelihood > new_likelihood:
+                self._verbose_local_minima(iter)
                 likelihood = new_likelihood
                 break
-
-            elif likelihood > new_likelihood:
-                self._verbose_local_minima(iter)
+            
+            elif abs(prev_loss - new_loss) < tol:
+                self.converged = True
+                self._verbose_converged(iter)
                 likelihood = new_likelihood
                 break
 
@@ -111,7 +114,9 @@ class LogisticPCA():
                 dev_explained = 1 - (likelihood / mean_likelihood)
                 self._verbose_iter(iter, dev_explained, new_likelihood)
 
+            # Update and increment
             likelihood = new_likelihood
+            prev_loss = new_loss
             iter += 1
 
         end_time = time.time()
@@ -146,8 +151,8 @@ class LogisticPCA():
     def _verbose_train_complete(self):
         if self.verbose:
             print(f"Training Complete. Converged Reached: {self.converged}\n" +
-                f"Percent of Deviance Explained: {self.dev * 100} %\n" +
-                f"Total Training Time: {self.train_time}")
+                f"Percent of Deviance Explained: {np.round(self.dev * 100, decimals=3)} %\n" +
+                f"Total Training Time: {np.round(self.train_time)}s")
     
 
     def transform(self, X):
