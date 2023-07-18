@@ -411,13 +411,13 @@ class LogisticPCA():
             self.U = f["U"][()]
             self.mu = f["mu"][()]
         
-        self.m = meta[0]
-        self.k = meta[1]
+        self.m = int(meta[0])
+        self.k = int(meta[1])
         self.dev = meta[2]
         self.train_time = meta[3]
-        self.converged = meta[4]
-        self.verbose = meta[5]
-        self.verbose_interval = meta[6]
+        self.converged = bool(meta[4])
+        self.verbose = bool(meta[5])
+        self.verbose_interval = int(meta[6])
 
     
     def __str__(self):
