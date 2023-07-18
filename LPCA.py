@@ -1,12 +1,12 @@
-from joblib import Parallel, delayed
-from joblib import cpu_count
-from scipy import linalg
-import numpy as np
 import time
 import h5py
+import numpy as np
+from scipy import linalg
+from joblib import cpu_count
+from joblib import Parallel, delayed
 
 class LogisticPCA():
-    def __init__(self, m=0, k=0):
+    def __init__(self, m=0, k=0, verbose=False, verbose_interval=100):
         """
         Initializes Logistic PCA object.
 
@@ -16,9 +16,29 @@ class LogisticPCA():
         """
         self.m = m
         self.k = k
+        self.verbose = verbose
+        self.verbose_interval = verbose_interval
+
+        self.train_time = None
+        self.converged = None
+        self.dev = None
+        self.mu = None
+        self.U = None
+
+
+    def set_verbose(self, verbose, verbose_interval):
+        """
+        Updates the verbose status for the current model
+
+        Parameters:
+        - verbose (boolean): If true, will print messages throughout training
+        - verbose_interval (boolean): Specifies how many iterations should occur between verbose messages
+        """
+        self.verbose = verbose
+        self.verbose_interval = verbose_interval
 
     
-    def fit(self, X, tol=0.0001, maxiters=1000, verbose=False):
+    def fit(self, X, tol=1e-4, maxiters=1000):
         """
         Fits the Logistic PCA model.
 
@@ -28,12 +48,13 @@ class LogisticPCA():
         - maxiters (int): Maximum number of iterations to run if converge criteria is never reached
         - verbose (boolean): If True, prints information on every 10th iteration
         """
-
         start_time = time.time()
 
         # Parameter Initializations
+        self.converged = False
+
         # n: # of observations, p: # of features
-        n, d = X.shape  
+        n, _ = X.shape  
 
         # Natural parameters of the saturated model Theta_S
         Q = (2*X) - 1
@@ -77,40 +98,59 @@ class LogisticPCA():
             new_likelihood = self.likelihood(X, Theta)
 
             if abs(new_likelihood - likelihood) < tol:
-                if verbose:
-                    print("Reached Convergence on Iteration #" + str(iter + 1))
-                break
-            elif likelihood > new_likelihood:
-                if verbose:
-                    print("Likelihood decreased, local minima found on Iteration #" + str(iter + 1))
+                self.converged = True
+                self.verbose_converged(iter)
                 likelihood = new_likelihood
                 break
+
+            elif likelihood > new_likelihood:
+                self.verbose_local_minima(iter)
+                likelihood = new_likelihood
+                break
+
             else:
-                if verbose and (iter % 10 == 0):
-                    dev_explained = 1 - (likelihood / mean_likelihood)
-                    formatted = "Iteration: {}\nPercent of Deviance Explained: {:.3f}%, Log Likelihood: {:.2f}\n".format(iter, dev_explained*100, new_likelihood)
-                    print(formatted)
+                dev_explained = 1 - (likelihood / mean_likelihood)
+                self.verbose_iter(iter, dev_explained, new_likelihood)
 
             likelihood = new_likelihood
             iter += 1
 
         end_time = time.time()
-        total_train_time = end_time - start_time
+        self.train_time = end_time - start_time
 
         # Save main effects and projection matrix
         self.mu = mu
         self.U = U
 
         # Calculate proportion of deviance explained
-        dev_explained = 1 - (likelihood / mean_likelihood)
-        self.dev = dev_explained
-        
-        if verbose:
-            print("Training Complete. Converged Reached: " + str(not (iter == maxiters)) +
-                "\nPercent of Deviance Explained: " + str(dev_explained * 100) + "%\n" +
-                "Total Training Time: " + str(total_train_time))
+        self.dev = 1 - (likelihood / mean_likelihood)
+
+        self.verbose_train_complete()
 
     
+    def verbose_iter(self, iter, dev, lik):
+        if self.verbose and iter % self.verbose_interval == 0:
+            print(f"Iteration: {iter}\nPercent of Deviance Explained: {np.round(dev * 100, decimals = 3)}%\n" +
+                  f"Log Likelihood: {np.round(lik, decimals=2)}\n")
+            
+
+    def verbose_local_minima(self, iter):
+        if self.verbose:
+            print(f"Likelihood decreased, local minima found on Iteration #{iter + 1}")
+            
+    
+    def verbose_converged(self, iter):
+        if self.verbose:
+            print(f"Reached Convergence on Iteration #{iter + 1}")
+    
+
+    def verbose_train_complete(self):
+        if self.verbose:
+            print(f"Training Complete. Converged Reached: {self.converged}\n" +
+                f"Percent of Deviance Explained: {self.dev * 100} %\n" +
+                f"Total Training Time: {self.train_time}")
+    
+
     def transform(self, X):
         """
         Transforms new data using the same model.
@@ -127,6 +167,24 @@ class LogisticPCA():
 
         Theta_S = (self.m * Q) - np.ones((n, 1)) @ self.mu
         return Theta_S @ self.U
+    
+
+    def reconstruct(self, Theta):
+        """
+        Reconstructs the data back to its original dimension
+
+        Parameters:
+        - Theta (matrix): Natural prameters of reduced data
+
+        Returns:
+        - X (matrix): Data reconstructed in its original dimension
+        """
+        n, _ = Theta.shape
+
+        Mu = np.ones((n, 1)) @ self.mu
+        X = Mu + Theta @ self.U.T
+
+        return X
 
         
     def likelihood(self, X, Theta):
@@ -154,10 +212,10 @@ class LogisticPCA():
         data_Mu = np.ones((n, 1)) @ mu
         mean_likelihood = self.likelihood(X, data_Mu)
 
-        found_Mu = np.ones((n, 1)) @ self.mu
-        Theta = found_Mu + self.transform(X) @ self.U.T
+        Theta = self.transform(X)
+        X_reconstructed = self.reconstruct(Theta)
 
-        likelihood = self.likelihood(X, Theta)
+        likelihood = self.likelihood(X, X_reconstructed)
 
         return 1 - (likelihood / mean_likelihood)
     
@@ -263,78 +321,6 @@ class LogisticPCA():
         self.fit(X, tol=tol, maxiters=maxiters)
     
 
-    def speed_test(self, X, Ks, target_dev, nfolds=5, tol=0.01, maxiters=100, verbose=False, n_jobs=-1):
-        """
-        A test to see the total time taken on preset m and k values
-
-        Parameters:
-        - X (matrix): The data
-        - Ks (list): k values to test
-        - target_dev (float): Proportion of deviance looking to be explained by the model [0, 1]
-        - tol (float): Minimum allowed difference between log likelihoods in the fitting method
-        - nfolds (int): Number of folds to use in the cross validation process
-        - verbose (boolean): When true, prints information on each cross validation fold
-        """
-        
-        # m values
-        m_vals = list(range(6, 17, 1))
-
-        # Update CPUs
-        if n_jobs == -1:
-            n_jobs = cpu_count()
-
-        # Testing all k vals
-        for k in Ks:
-            if verbose:
-                print("Testing speed of k=" + str(k) + " and deviance=" + str(target_dev) + " over "+ str(nfolds) + " folds...")
-
-            start_time = time.time()
-
-            # Check m values for a given k
-            # The additional loop is a trick to break out of parallel compute when any solution is found
-            m_batches = np.array_split(m_vals, np.ceil(len(m_vals)/n_jobs))
-
-            for m_batch in m_batches:
-                def fit_with_m(m_val):
-                    # Create a temp class
-                    tmp = self.__class__(m=m_val, k=k)
-
-                    start_time = time.time()
-
-                    # New folds for each m value
-                    folds = tmp.split_data(X, nfolds)
-                    deviances = []
-
-                    for i, fold in enumerate(folds):
-                        # Create the training matrix
-                        train = np.concatenate([f for j, f in enumerate(folds) if j != i])
-                        tmp.fit(train, tol=tol, maxiters=maxiters)
-
-                        # Apply it to the new fold to test generalization
-                        deviances.append(tmp.deviance(fold))
-                    
-                    avg_dev = sum(deviances) / nfolds
-
-                    return m_val, avg_dev
-
-                results = Parallel(n_jobs=n_jobs)(delayed(fit_with_m)(m) for m in m_batch)
-                results.sort(key=lambda x: x[0])
-
-                for m, avg_dev in results:
-                    if verbose:
-                        print(f"Checked m={m} and k={self.k}. Avg Deviance: {avg_dev}.")
-
-                    if avg_dev >= target_dev:
-                        break  # This will break the inner loop over the batch
-                else:
-                    continue
-                break
-            
-            end_time = time.time()
-            total_time = end_time - start_time
-            print(f"Speed of k={self.k}. Total Training Time: {total_time}")
-
-
     def split_data(self, X, k):
         """
         Splits the data into k folds.
@@ -355,8 +341,7 @@ class LogisticPCA():
         """
         Displays the values of m, k, and % of deviance explained for the chosen model.
         """
-        formatted = "Logistic PCA Model w/ m={} and k={}\nProjects the data onto {}-dimensional space, explaining {:.3f}% of the deviance".format(self.m, self.k, self.k, self.dev * 100)
-        print(formatted)
+        print(self)
     
 
     def sigmoid(self, X):
@@ -390,18 +375,40 @@ class LogisticPCA():
     
 
     def save_model(self, file_path):
+        """
+        Stores the model at the specified path in h5 format
+
+        Parameters:
+        - file_path (string): Path to the file to create or write to
+        """
+        meta = [self.m, self.k, self.dev, self.train_time, self.converged, self.verbose, self.verbose_interval]
         with h5py.File(file_path, "w") as f:
-            f.create_dataset("dev", data=self.dev)
-            f.create_dataset("m", data=self.m)
-            f.create_dataset("k", data=self.k)
+            f.create_dataset("meta", data=meta)
             f.create_dataset("U", data=self.U)
             f.create_dataset("mu", data=self.mu)
 
     
     def load_model(self, file_path):
+        """
+        Loads an existing model from the specified h5 file
+
+        Parameters:
+        - file_path (string): Path to a model's h5 file
+        """
         with h5py.File(file_path, "r") as f:
-            self.dev = f["dev"][()]
-            self.m = f["m"][()]
-            self.k = f["k"][()]
+            meta = f["meta"][()]
             self.U = f["U"][()]
             self.mu = f["mu"][()]
+        
+        self.m = meta[0]
+        self.k = meta[1]
+        self.dev = meta[2]
+        self.train_time = meta[3]
+        self.converged = meta[4]
+        self.verbose = meta[5]
+        self.verbose_interval = meta[6]
+
+    
+    def __str__(self):
+        formatted = f"Logistic PCA Model w/ m={self.m} and k={self.k}\nExplains {np.round(self.dev * 100, decimals=1)}% of the deviance"
+        return formatted
