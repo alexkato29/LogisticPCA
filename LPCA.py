@@ -46,7 +46,6 @@ class LogisticPCA():
         - X (matrix): Data matrix containing only bernoulli RVs
         - tol (float): Converge criteria. Minimum allowed difference between previous loss and current loss
         - maxiters (int): Maximum number of iterations to run if converge criteria is never reached
-        - verbose (boolean): If True, prints information on every 10th iteration
         """
         start_time = time.time()
 
@@ -99,18 +98,18 @@ class LogisticPCA():
 
             if abs(new_likelihood - likelihood) < tol:
                 self.converged = True
-                self.verbose_converged(iter)
+                self._verbose_converged(iter)
                 likelihood = new_likelihood
                 break
 
             elif likelihood > new_likelihood:
-                self.verbose_local_minima(iter)
+                self._verbose_local_minima(iter)
                 likelihood = new_likelihood
                 break
 
             else:
                 dev_explained = 1 - (likelihood / mean_likelihood)
-                self.verbose_iter(iter, dev_explained, new_likelihood)
+                self._verbose_iter(iter, dev_explained, new_likelihood)
 
             likelihood = new_likelihood
             iter += 1
@@ -125,26 +124,26 @@ class LogisticPCA():
         # Calculate proportion of deviance explained
         self.dev = 1 - (likelihood / mean_likelihood)
 
-        self.verbose_train_complete()
+        self._verbose_train_complete()
 
     
-    def verbose_iter(self, iter, dev, lik):
+    def _verbose_iter(self, iter, dev, lik):
         if self.verbose and iter % self.verbose_interval == 0:
             print(f"Iteration: {iter}\nPercent of Deviance Explained: {np.round(dev * 100, decimals = 3)}%\n" +
                   f"Log Likelihood: {np.round(lik, decimals=2)}\n")
             
 
-    def verbose_local_minima(self, iter):
+    def _verbose_local_minima(self, iter):
         if self.verbose:
             print(f"Likelihood decreased, local minima found on Iteration #{iter + 1}")
             
     
-    def verbose_converged(self, iter):
+    def _verbose_converged(self, iter):
         if self.verbose:
             print(f"Reached Convergence on Iteration #{iter + 1}")
     
 
-    def verbose_train_complete(self):
+    def _verbose_train_complete(self):
         if self.verbose:
             print(f"Training Complete. Converged Reached: {self.converged}\n" +
                 f"Percent of Deviance Explained: {self.dev * 100} %\n" +
