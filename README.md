@@ -8,7 +8,7 @@ The LogisticPCA package provides a python implementation of logisitc PCA. A Logi
 This code doesn't require a special installation process if Python and necessary libraries are already installed. Download the LPCA.py file and import the LogisticPCA class in your Python script:
 
 ```python
-from LPCA.py import LogisticPCA
+from LPCA import LogisticPCA
 ```
 
 The required dependencies are: NumPy, Joblib, and h5py. 
