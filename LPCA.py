@@ -97,13 +97,14 @@ class LogisticPCA():
             Theta = Mu + ((Theta_S - Mu) @ U @ U.T)
             new_likelihood = self.likelihood(X, Theta)
             new_loss = (-new_likelihood) / frobenius
+            change = prev_loss - new_loss
 
             if likelihood > new_likelihood:
                 self._verbose_local_minima(iter)
                 likelihood = new_likelihood
                 break
             
-            elif abs(prev_loss - new_loss) < tol:
+            elif change < tol:
                 self.converged = True
                 self._verbose_converged(iter)
                 likelihood = new_likelihood
@@ -111,7 +112,7 @@ class LogisticPCA():
 
             else:
                 dev_explained = 1 - (likelihood / mean_likelihood)
-                self._verbose_iter(iter, dev_explained, new_likelihood)
+                self._verbose_iter(iter, dev_explained, new_likelihood, change)
 
             # Update and increment
             likelihood = new_likelihood
@@ -131,10 +132,10 @@ class LogisticPCA():
         self._verbose_train_complete()
 
     
-    def _verbose_iter(self, iter, dev, lik):
+    def _verbose_iter(self, iter, dev, lik, change):
         if self.verbose and iter % self.verbose_interval == 0:
             print(f"Iteration: {iter}\nPercent of Deviance Explained: {np.round(dev * 100, decimals = 3)}%\n" +
-                  f"Log Likelihood: {np.round(lik, decimals=2)}\n")
+                  f"Log Likelihood: {np.round(lik, decimals=2)}, Loss Trace: {change}\n")
             
 
     def _verbose_local_minima(self, iter):
